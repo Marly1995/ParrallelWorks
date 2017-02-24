@@ -105,22 +105,14 @@ int main(int argc, char **argv) {
 		queue.enqueueWriteBuffer(buffer_B, CL_TRUE, 0, vector_size, &B[0]);
 
 		//5.2 Setup and execute the kernel (i.e. device code)
-		cl::Kernel kernel_multiply = cl::Kernel(program, "multiply");
+		cl::Kernel kernel_multiply = cl::Kernel(program, "avg_filter");
 		kernel_multiply.setArg(0, buffer_A);
 		kernel_multiply.setArg(1, buffer_B);
-		kernel_multiply.setArg(2, buffer_C);
 
 		queue.enqueueNDRangeKernel(kernel_multiply, cl::NullRange, cl::NDRange(vector_elements), cl::NullRange);
 
-		cl::Kernel kernel_add = cl::Kernel(program, "add2D");
-		kernel_add.setArg(0, buffer_C);
-		kernel_add.setArg(1, buffer_B);
-		kernel_add.setArg(2, buffer_C);
-
-		queue.enqueueNDRangeKernel(kernel_add, cl::NullRange, cl::NDRange(vector_elements), cl::NullRange, NULL, &prof_event);
-
 		//5.3 Copy the result from device to host
-		queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, vector_size, &C[0]);
+		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, vector_size, &C[0]);
 
 		/*std::cout << "A = " << A << std::endl;
 		std::cout << "B = " << B << std::endl;
