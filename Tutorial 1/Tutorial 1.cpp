@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <vector>
+#include <time.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.hpp>
@@ -30,22 +31,118 @@ int readVectorLength()
 	return vl;
 }
 
+float* fscanFile(char* fileDirectory, int dataSize)
+{
+	float* data = new float[dataSize];
+	FILE * myFile;
+
+	myFile = fopen(fileDirectory, "r");
+	fseek(myFile, 0L, SEEK_SET);
+	for (int i = 0; i < dataSize; i++)
+	{
+		fscanf(myFile, "%*s %*lf %*lf %*lf %*lf %f", &data[i]);
+	}
+	fclose(myFile);
+	return data;
+}
+
+string loadFile(char* fileDirectory)
+{
+	ifstream file;
+	string data;
+	string line;
+	if (fileDirectory != nullptr)
+	{
+		file.open(fileDirectory);
+	}
+	if (file.is_open())
+	{
+		std::cout << "File Opened!" << std::endl;
+		while (getline(file, line))
+		{
+			data += line;
+		}
+	}
+	file.close();
+	return data;
+}
+
+vector<float> parseData(string data, int dataSize)
+{
+	vector<float> temps;
+	int column = 0;
+	string num;
+	for (int i = 0; i < data.size(); i++)
+	{
+		if (column == 6)
+		{
+			temps.push_back(stof(num));
+			num.clear();
+			column = 1;
+		}
+		if (column == 5)
+		{
+			num += data[i];
+		}
+		if (data[i] == ' ')
+		{
+			column++;
+		}
+	}
+	return temps;
+}
+
+
 int main(int argc, char **argv) {
 	//Part 1 - handle command line options such as device selection, verbosity, etc.
 	int platform_id = 0;
 	int device_id = 0;
-	int vectorLength = 10;
 
-	for (int i = 1; i < argc; i++)	{
+	clock_t time = clock();
+
+	for (int i = 1; i < argc; i++) {
 		if ((strcmp(argv[i], "-p") == 0) && (i < (argc - 1))) { platform_id = atoi(argv[++i]); }
 		else if ((strcmp(argv[i], "-d") == 0) && (i < (argc - 1))) { device_id = atoi(argv[++i]); }
 		else if (strcmp(argv[i], "-l") == 0) { std::cout << ListPlatformsDevices() << std::endl; }
 		else if (strcmp(argv[i], "-h") == 0) { print_help(); }
-		else if (strcmp(argv[i], "-s") == 0) { vectorLength = readVectorLength(); }
 	}
 
 	//detect any potential exceptions
 	try {
+		// File parsing
+		int dataSize = 1873106;
+		time = clock() - time;
+		float* data = fscanFile("../../temp_lincolnshire.txt", dataSize);
+		//string data = loadFile("../temp_lincolnshire_short.txt");
+		/*float temps[100] = { 0.0f };
+		int column = 0;
+		int index = 0;
+		string num;
+		for (int i = 0; i < data.size(); i++)
+		{
+		if (column == 6)
+		{
+		temps[index] = stof(num);
+		index++;
+		num.clear();
+		column = 1;
+		}
+		if (column == 5)
+		{
+		num += data[i];
+		}
+		if (data[i] == ' ')
+		{
+		column++;
+		}
+		if (!isalpha(data[i]))
+		{
+		column++;
+		}
+		}*/
+		time = clock() - time;
+		std::cout << "read and parse time = " << time << std::endl;
+
 		//Part 2 - host operations
 		//2.1 Select computing devices
 		cl::Context context = GetContext(platform_id, device_id);
@@ -74,45 +171,64 @@ int main(int argc, char **argv) {
 			throw err;
 		}
 
-		//Part 4 - memory allocation
-		//host - input
-		std::vector<int> A(vectorLength);// { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }; //C++11 allows this type of initialisation
-		std::vector<int> B(vectorLength);// = { 0, 1, 2, 0, 1, 2, 0, 1, 2, 0 };
-		
-		for (int i = 0; i < A.size(); i++)
-		{
-			A[i] = rand() % 10;
-			B[i] = rand() % 20;
-		}
-		size_t vector_elements = A.size();//number of elements
-		size_t vector_size = A.size()*sizeof(int);//size in bytes
-
-		//host - output
-		std::vector<int> C(vector_elements);
-
 		//events
 		cl::Event prof_event;
+		typedef int mytype;
+
+		//Part 4 - memory allocation
+		//host - input	
+		std::vector<mytype> A(dataSize, 0);
+		for (int i = 0; i < dataSize; i++)
+		{
+			A[i] = data[i] * 10;
+		}
+		time = clock() - time;
+		//the following part adjusts the length of the input vector so it can be run for a specific workgroup size
+		//if the total input length is divisible by the workgroup size
+		//this makes the code more efficient
+		size_t local_size = 32;
+
+		size_t padding_size = A.size() % local_size;
+
+		//if the input vector is not a multiple of the local_size
+		//insert additional neutral elements (0 for addition) so that the total will not be affected
+		if (padding_size) {
+			//create an extra vector with neutral values
+			std::vector<int> A_ext(local_size - padding_size, 0);
+			//append that extra vector to our input
+			A.insert(A.end(), A_ext.begin(), A_ext.end());
+		}
+
+		size_t input_elements = A.size();//number of input elements
+		size_t input_size = A.size() * sizeof(mytype);//size in bytes
+		size_t nr_groups = input_elements / local_size;
 
 		//device - buffers
-		cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, vector_size);
-		cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, vector_size);
-		cl::Buffer buffer_C(context, CL_MEM_READ_WRITE, vector_size);
+		std::vector<mytype> B(1);
+		size_t output_size = B.size() * sizeof(mytype);//size in bytes
+
+													   //device - buffers
+		cl::Buffer buffer_A(context, CL_MEM_READ_ONLY, input_size);
+		cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, output_size);
 
 		//Part 5 - device operations
 
-		//5.1 Copy arrays A and B to device memory
-		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, vector_size, &A[0]);
-		queue.enqueueWriteBuffer(buffer_B, CL_TRUE, 0, vector_size, &B[0]);
+		//5.1 copy array A to and initialise other arrays on device memory
+		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, input_size, &A[0]);
+		queue.enqueueFillBuffer(buffer_B, 0, 0, output_size);//zero B buffer on device memory
 
-		//5.2 Setup and execute the kernel (i.e. device code)
-		cl::Kernel kernel_multiply = cl::Kernel(program, "avg_filter");
-		kernel_multiply.setArg(0, buffer_A);
-		kernel_multiply.setArg(1, buffer_B);
+		cl::Kernel kernel_0 = cl::Kernel(program, "reduce_max");
+		kernel_0.setArg(0, buffer_A);
+		kernel_0.setArg(1, buffer_B);
+		kernel_0.setArg(2, cl::Local(local_size * sizeof(mytype)));//local memory size
 
-		queue.enqueueNDRangeKernel(kernel_multiply, cl::NullRange, cl::NDRange(vector_elements), cl::NullRange);
+																   //call all kernels in a sequence
+		queue.enqueueNDRangeKernel(kernel_0, cl::NullRange, cl::NDRange(input_elements), cl::NDRange(local_size));
 
 		//5.3 Copy the result from device to host
-		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, vector_size, &C[0]);
+		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, output_size, &B[0]);
+
+		std::cout << "Max = " << B[0] / 10 << std::endl;
 
 		/*std::cout << "A = " << A << std::endl;
 		std::cout << "B = " << B << std::endl;

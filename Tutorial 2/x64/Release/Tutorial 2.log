@@ -1,0 +1,4 @@
+﻿  Tutorial 2.cpp
+c:\users\computing\documents\github\parrallelworks\tutorial 2\ImageIO.h(6): fatal error C1083: Cannot open include file: 'lodepng.h': No such file or directory
+  lodepng.cpp
+Graphics\lodepng\lodepng.cpp(3441): warning C4334: '<<': result of 32-bit shift implicitly converted to 64 bits (was 64-bit shift intended?)
